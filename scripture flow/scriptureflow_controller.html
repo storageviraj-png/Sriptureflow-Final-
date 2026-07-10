@@ -382,7 +382,7 @@
 
         async function preloadBibles() {
             const [eng, tel, hin] = await Promise.all([
-                safeLoadBible('./data/english-normalized.json', 'English'),
+                safeLoadBible('./data/english.json', 'English'),
                 safeLoadBible('./data/telugu-complete.json', 'Telugu'),
                 safeLoadBible('./data/hindi.json', 'Hindi')
             ]);
