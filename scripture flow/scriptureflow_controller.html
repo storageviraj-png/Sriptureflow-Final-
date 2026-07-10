@@ -78,7 +78,7 @@
                     </select>
                 </div>
                 <div class="flex gap-2">
-                    <input id="searchInput" type="text" placeholder="e.g. John 3:16, Romans 8:28, Psalm 23"
+                    <input id="searchInput" type="text" placeholder="e.g. John 3, Genesis 1 (or John 3:16 for a single verse)"
                         class="flex-1 text-sm designer-input p-2.5 rounded-xl" />
                     <button id="searchBtn" onclick="doSearch()" class="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white px-4 rounded-xl text-xs font-bold transition-all active:scale-95 shrink-0">Search</button>
                 </div>
@@ -382,7 +382,7 @@
 
         async function preloadBibles() {
             const [eng, tel, hin] = await Promise.all([
-                safeLoadBible('./data/english.json', 'English'),
+                safeLoadBible('./data/english-normalized.json', 'English'),
                 safeLoadBible('./data/telugu-complete.json', 'Telugu'),
                 safeLoadBible('./data/hindi.json', 'Hindi')
             ]);
@@ -433,31 +433,64 @@
         }
 
         function parseScriptureReference(input) {
-            const regex = /^(\d?\s*[a-zA-Z\s]+?)\s+(\d+):(\d+)(?:\s*-\s*(?:(\d+):)?(\d+))?$/;
-            const match = input.trim().match(regex);
-            if (!match) return null;
+            // --- MODE 1: Verse-level reference ---
+            // Matches "Book Chapter:Verse" or "Book Chapter:Verse-Verse" (optionally
+            // spanning chapters, e.g. "Romans 8:28-9:1"). This is the ORIGINAL parsing
+            // path, preserved unchanged so existing verse-exact searches keep working.
+            const verseRegex = /^(\d?\s*[a-zA-Z\s]+?)\s+(\d+):(\d+)(?:\s*-\s*(?:(\d+):)?(\d+))?$/;
+            const verseMatch = input.trim().match(verseRegex);
+            if (verseMatch) {
+                const book = verseMatch[1].trim();
+                const startChap = parseInt(verseMatch[2], 10);
+                const startVerse = parseInt(verseMatch[3], 10);
 
-            const book = match[1].trim();
-            const startChap = parseInt(match[2], 10);
-            const startVerse = parseInt(match[3], 10);
+                let endChap = startChap;
+                let endVerse = startVerse;
 
-            let endChap = startChap;
-            let endVerse = startVerse;
+                if (verseMatch[4]) {
+                    endChap = parseInt(verseMatch[4], 10);
+                    endVerse = parseInt(verseMatch[5], 10);
+                } else if (verseMatch[5]) {
+                    endVerse = parseInt(verseMatch[5], 10);
+                }
 
-            if (match[4]) {
-                endChap = parseInt(match[4], 10);
-                endVerse = parseInt(match[5], 10);
-            } else if (match[5]) {
-                endVerse = parseInt(match[5], 10);
+                return {
+                    bookName: book,
+                    startChap,
+                    startVerse,
+                    endChap,
+                    endVerse,
+                    // chapterOnly = false tells getVersesFromMemory() to use the
+                    // existing verse-range filtering logic (unchanged behavior).
+                    chapterOnly: false
+                };
             }
 
-            return {
-                bookName: book,
-                startChap,
-                startVerse,
-                endChap,
-                endVerse
-            };
+            // --- MODE 2 (NEW, now PRIMARY): Chapter-level reference ---
+            // Matches "Book Chapter" with no colon and no verse number, e.g.
+            // "John 3", "Genesis 1", "Romans 8", "Psalm 23". This is the new
+            // default search style for live services: the operator only needs
+            // to know the book and chapter, not exact verse numbers.
+            const chapterRegex = /^(\d?\s*[a-zA-Z\s]+?)\s+(\d+)$/;
+            const chapterMatch = input.trim().match(chapterRegex);
+            if (chapterMatch) {
+                const book = chapterMatch[1].trim();
+                const chapter = parseInt(chapterMatch[2], 10);
+                return {
+                    bookName: book,
+                    startChap: chapter,
+                    endChap: chapter,
+                    // startVerse/endVerse are intentionally null — there is no verse
+                    // restriction in chapter mode. getVersesFromMemory() checks the
+                    // chapterOnly flag (not these values) to decide how to filter.
+                    startVerse: null,
+                    endVerse: null,
+                    chapterOnly: true
+                };
+            }
+
+            // Neither pattern matched — not a recognizable reference.
+            return null;
         }
 
         function getCurrentDatabase() {
@@ -505,6 +538,19 @@
             if (!matchedBookKey) return [];
 
             const bucket = source.idx.get(matchedBookKey);
+
+            // --- NEW: Chapter search path ---
+            // When parseScriptureReference() detected a chapter-only input (e.g. "John 3"),
+            // return every verse belonging to that chapter, with no verse filtering at all.
+            // Verses are sorted by verse number to guarantee correct presentation order,
+            // since JSON source order is not guaranteed by this codebase's contract.
+            if (parsedRef.chapterOnly) {
+                return bucket
+                    .filter(item => item.chapter === parsedRef.startChap)
+                    .sort((a, b) => a.verse - b.verse);
+            }
+
+            // --- ORIGINAL: Verse-range search path (unchanged) ---
             return bucket.filter(item => {
                 if (parsedRef.startChap === parsedRef.endChap) {
                     return (
@@ -736,7 +782,7 @@
 
             const parsed = parseScriptureReference(input);
             if (!parsed) {
-                status.textContent = 'Invalid reference. e.g. "John 3:16", "Jude 1:24"';
+                status.textContent = 'Invalid reference. e.g. "John 3" (chapter) or "John 3:16" (verse)';
                 return;
             }
 
@@ -746,10 +792,20 @@
                 return;
             }
 
+            // versesList keeps the EXACT same shape as before — an array of
+            // "<verse number> <verse text>" strings — regardless of whether this
+            // was a chapter search or a verse search. output.html, the queue,
+            // favorites, and presenter grid never need to know which mode was used.
             const versesList = verses.map(v => `${v.verse} ${v.text}`);
-            const reference = verses.length > 0 
-                ? `${verses[0].book} ${verses[0].chapter}:${verses[0].verse}${verses.length > 1 ? '-' + verses[verses.length - 1].verse : ''}` 
-                : input;
+
+            // NEW: chapter-mode reference label omits verse numbers (e.g. "John 3"
+            // instead of "John 3:1-36"), since the whole chapter is being shown.
+            // Verse-mode keeps the exact original label format, unchanged.
+            const reference = parsed.chapterOnly
+                ? `${verses[0].book} ${verses[0].chapter}`
+                : (verses.length > 0
+                    ? `${verses[0].book} ${verses[0].chapter}:${verses[0].verse}${verses.length > 1 ? '-' + verses[verses.length - 1].verse : ''}`
+                    : input);
 
             status.textContent = `Found ${versesList.length} verse(s).`;
 
