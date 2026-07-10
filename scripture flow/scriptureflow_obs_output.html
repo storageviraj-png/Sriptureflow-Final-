@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScriptureFlow — OBS Output</title>
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Poppins:wght@300;500;700;800&family=Space+Mono:wght@400;700&family=Cinzel:wght@600;800&family=Bebas+Neue&family=Noto+Sans+Telugu:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    pointer-events: none;
+    padding: 0 6vw;
+    box-sizing: border-box;
+  }
+  /* Display modes */
+  #stage.mode-centered { justify-content: center; }
+  #stage.mode-fullscreen { justify-content: center; padding: 0 3vw; }
+  #stage.mode-lowerThird {
+    justify-content: flex-end;
+    padding-bottom: 7vh;
+  }
+  #stage.mode-lowerThird #versebox {
+    background: rgba(0,0,0,0.38);
+    border-radius: 14px;
+    padding: 1.4em 2.2em;
+    max-width: 92%;
+  }
+
+  #versebox {
+    text-align: center;
+    line-height: 1.35;
+    transition: opacity 0.4s cubic-bezier(0.25,1,0.5,1), transform 0.4s cubic-bezier(0.25,1,0.5,1);
+    will-change: opacity, transform;
+    opacity: 0;
+    transform: scale(0.96);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    align-items: center;
+  }
+  #versebox.visible { opacity: 1; transform: scale(1); }
+
+  #verseText { margin: 0; }
+  #verseRef {
+    margin: 0;
+    opacity: 0.85;
+    font-family: 'Inter', sans-serif;
+  }
+  #stage.ref-hidden #verseRef { display: none; }
+
+  #debugBadge {
+    position: fixed;
+    bottom: 6px; left: 6px;
+    font: 11px/1.4 'Space Mono', monospace;
+    color: #0f0;
+    background: rgba(0,0,0,0.65);
+    padding: 6px 10px;
+    border-radius: 6px;
+    white-space: pre;
+    display: none;
+    z-index: 9999;
+  }
+  #fatalBanner {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(20,0,0,0.92);
+    color: #ff6b6b;
+    font: 600 16px/1.6 monospace;
+    text-align: center;
+    padding: 40px;
+    z-index: 10000;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+  <div id="stage" class="mode-centered">
+    <div id="versebox">
+      <p id="verseText"></p>
+      <p id="verseRef"></p>
+    </div>
+  </div>
+  <div id="debugBadge"></div>
+  <div id="fatalBanner"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // ======================================================================
+    // CONFIG — MUST MATCH controller.html's firebaseConfig
+    // ======================================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAGVzu73y3qmqNNdHX6jklu4WuwU2iLyl0",
+      authDomain: "scriptureflow-2f406.firebaseapp.com",
+      projectId: "scriptureflow-2f406",
+      storageBucket: "scriptureflow-2f406.firebasestorage.app",
+      messagingSenderId: "378576419145",
+      appId: "1:378576419145:web:5127d614483d4942e48298"
+    };
+
+    const APP_ID = "scriptureflow-live";
+    const STATE_PATH = ['artifacts', APP_ID, 'public', 'data', 'scripture_state', 'current'];
+
+    const params = new URLSearchParams(window.location.search);
+    const DEBUG = params.get('debug') === '1';
+    const debugBadge = document.getElementById('debugBadge');
+    const fatalBanner = document.getElementById('fatalBanner');
+    if (DEBUG) debugBadge.style.display = 'block';
+
+    function log(...a)  { console.log(`[ScriptureFlowOutput ${new Date().toISOString()}]`, ...a); updateBadge(); }
+    function warn(...a) { console.warn('[ScriptureFlowOutput WARN]', ...a); updateBadge(); }
+    function err(...a)  { console.error('[ScriptureFlowOutput ERROR]', ...a); updateBadge(); }
+
+    let lastVersion = null, lastEventAt = Date.now(), connectionState = 'booting', reconnectAttempt = 0;
+    function updateBadge() {
+      if (!DEBUG) return;
+      debugBadge.textContent =
+        `state: ${connectionState}\nversion: ${lastVersion}\nlast event: ${new Date(lastEventAt).toLocaleTimeString()}\nreconnects: ${reconnectAttempt}`;
+    }
+
+    function showFatal(message) { fatalBanner.textContent = message; fatalBanner.style.display = 'flex'; }
+    function hideFatal() { fatalBanner.style.display = 'none'; }
+
+    if (firebaseConfig.apiKey === 'REPLACE_ME') {
+      showFatal('ScriptureFlow Output: Firebase config not set.\nOpen output.html and replace the placeholder firebaseConfig values, then refresh.');
+      err('firebaseConfig still has placeholder values — refusing to boot silently.');
+      throw new Error('Firebase config not configured');
+    }
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    const docRef = doc(db, ...STATE_PATH);
+
+    const stageEl = document.getElementById('stage');
+    const verseBoxEl = document.getElementById('versebox');
+    const verseTextEl = document.getElementById('verseText');
+    const verseRefEl = document.getElementById('verseRef');
+
+    let currentRenderKey = null;
+    let renderTimer = null;
+
+    const SCRIPT_FONT_FALLBACK = {
+      en: 'sans-serif',
+      te: '"Noto Sans Telugu", sans-serif',
+      hi: '"Noto Sans Devanagari", sans-serif'
+    };
+
+    function validateState(data) {
+      if (!data) return null;
+      
+      if (!Array.isArray(data.versesList)) {
+        err('Invalid versesList type:', typeof data.versesList);
+        return null;
+      }
+      
+      if (data.versesList.length === 0) {
+        err('Empty versesList');
+        return null;
+      }
+      
+      const currentIdx = Math.max(0, Math.min(Math.floor(Number(data.currentIdx || 0)), data.versesList.length - 1));
+      const blackout = Boolean(data.blackout);
+      const reference = String(data.reference || '');
+      const translationAbbr = String(data.translationAbbr || '');
+      const language = String(data.language || 'en');
+      const version = data.version;
+      const displayMode = String(data.displayMode || 'centered');
+      const showReference = data.showReference !== false;
+      const backgroundMode = String(data.backgroundMode || 'transparent');
+      const styles = data.styles || {};
+      
+      return {
+        versesList: data.versesList,
+        currentIdx,
+        blackout,
+        reference,
+        translationAbbr,
+        language,
+        version,
+        displayMode,
+        showReference,
+        backgroundMode,
+        styles
+      };
+    }
+
+    function applyStyles(data) {
+      const st = Object.assign({
+        font: 'Inter', align: 'center', weight: '600', fontSize: '2.6',
+        letterSpacing: '0', activeColor: '#ffffff', highlightColor: '#e11d48',
+        glow: '6', verticalAlign: 'center',
+        outlineColor: '#000000', outlineWidth: '0',
+        shadowColor: '#000000', shadowBlur: '0',
+        refFontScale: '0.4'
+      }, data.styles || {});
+
+      const lang = data.language || 'en';
+      const fallback = SCRIPT_FONT_FALLBACK[lang] || 'sans-serif';
+      const fontStack = `"${st.font}", ${fallback}`;
+
+      verseBoxEl.style.fontFamily = fontStack;
+      verseTextEl.style.textAlign = st.align;
+      verseTextEl.style.fontWeight = st.weight;
+      verseTextEl.style.fontSize = `${st.fontSize}rem`;
+      verseTextEl.style.letterSpacing = `${st.letterSpacing}px`;
+      verseTextEl.style.color = st.activeColor;
+
+      const glowShadow = parseInt(st.glow) > 0
+        ? `0 0 ${st.glow}px ${st.highlightColor}, 0 0 ${parseInt(st.glow)/2}px ${st.activeColor}`
+        : '';
+      const dropShadow = parseFloat(st.shadowBlur) > 0
+        ? `2px 3px ${st.shadowBlur}px ${st.shadowColor}`
+        : '';
+      verseTextEl.style.textShadow = [dropShadow, glowShadow].filter(Boolean).join(', ') || 'none';
+      verseTextEl.style.webkitTextStroke = parseFloat(st.outlineWidth) > 0
+        ? `${st.outlineWidth}px ${st.outlineColor}` : '0px transparent';
+
+      verseRefEl.style.fontSize = `${(parseFloat(st.fontSize) * parseFloat(st.refFontScale || 0.4)).toFixed(2)}rem`;
+      verseRefEl.style.color = st.activeColor;
+      verseRefEl.style.fontWeight = '600';
+
+      stageEl.className = `mode-${data.displayMode || 'centered'}`;
+      if (data.showReference === false) stageEl.classList.add('ref-hidden');
+      else stageEl.classList.remove('ref-hidden');
+
+      if (st.verticalAlign === 'top') stageEl.style.justifyContent = 'flex-start';
+      else if (st.verticalAlign === 'bottom') stageEl.style.justifyContent = 'flex-end';
+      else if (!stageEl.classList.contains('mode-lowerThird')) stageEl.style.justifyContent = 'center';
+    }
+
+    function render(data) {
+      const validated = validateState(data);
+      if (!validated) { 
+        renderText('', ''); 
+        return; 
+      }
+
+      const { versesList, currentIdx, blackout, reference, translationAbbr, version } = validated;
+      const text = (!blackout && currentIdx < versesList.length) ? versesList[currentIdx] : '';
+      const refLabel = text ? `${reference}${translationAbbr ? ' (' + translationAbbr + ')' : ''}` : '';
+      const key = `${version}::${currentIdx}::${blackout}::${text}`;
+
+      applyStyles(validated);
+
+      if (key === currentRenderKey) return;
+      currentRenderKey = key;
+      lastVersion = version ?? lastVersion;
+      renderText(text, refLabel);
+      log('Rendered', { currentIdx, blackout, version, reference, text: text.slice(0, 40) });
+    }
+
+    function renderText(text, refLabel) {
+      verseBoxEl.classList.remove('visible');
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => {
+        verseTextEl.textContent = text;
+        verseRefEl.textContent = refLabel;
+        
+        requestAnimationFrame(() => {
+          if (text) {
+            verseBoxEl.classList.add('visible');
+          }
+        });
+      }, 220);
+    }
+
+    let unsubscribe = null;
+    let destroyed = false;
+
+    function attachListener() {
+      if (destroyed) return;
+      if (unsubscribe) { try { unsubscribe(); } catch (e) {} }
+      connectionState = 'connecting';
+      log('Attaching Firestore listener', { attempt: reconnectAttempt });
+
+      unsubscribe = onSnapshot(
+        docRef,
+        { includeMetadataChanges: true },
+        (snap) => {
+          connectionState = snap.metadata.fromCache ? 'connected (cache)' : 'connected (live)';
+          lastEventAt = Date.now();
+          reconnectAttempt = 0;
+          hideFatal();
+          if (snap.exists()) render(snap.data());
+          else { warn('State document does not exist yet — open controller.html and load a passage once.'); render(null); }
+        },
+        (error) => {
+          connectionState = 'error';
+          err('onSnapshot error', error.code, error.message);
+          if (error.code === 'permission-denied') {
+            showFatal('ScriptureFlow Output: Firestore permission denied.');
+          }
+          scheduleReconnect();
+        }
+      );
+    }
+
+    function scheduleReconnect() {
+      if (destroyed) return;
+      reconnectAttempt += 1;
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 15000);
+      log(`Reconnecting in ${delay}ms`, { attempt: reconnectAttempt });
+      setTimeout(attachListener, delay);
+    }
+
+    async function manualResync(reason) {
+      try {
+        log('Manual resync:', reason);
+        const snap = await getDoc(docRef);
+        lastEventAt = Date.now();
+        if (snap.exists()) render(snap.data());
+      } catch (e) { err('Manual resync failed', e); }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') manualResync('visibility-restored');
+    });
+    window.addEventListener('online', () => manualResync('network-online'));
+    window.addEventListener('pageshow', () => manualResync('pageshow'));
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        log('Authenticated', user.uid);
+        manualResync('initial-load').finally(attachListener);
+      }
+    });
+
+    signInAnonymously(auth).catch((e) => {
+      err('Anonymous sign-in failed', e.code, e.message);
+      if (
+        e.code === 'auth/admin-restricted-operation' || 
+        e.code === 'auth/operation-not-allowed' || 
+        e.code === 'auth/configuration-not-found'
+      ) {
+        showFatal(
+          'ScriptureFlow Output — Authentication Setup Required:\n\n' +
+          'Anonymous Authentication is currently disabled or unconfigured on your Firebase project.\n\n' +
+          'How to fix this:\n' +
+          '1. Go to your Firebase Console (console.firebase.google.com)\n' +
+          '2. Navigate to Authentication -> Sign-in method\n' +
+          '3. Enable the "Anonymous" provider and save changes.\n' +
+          '4. Reload this page once enabled!'
+        );
+      } else {
+        showFatal(`Firebase Authentication Error:\n[${e.code}] ${e.message}`);
+      }
+    });
+
+    window.addEventListener('beforeunload', () => { destroyed = true; });
+  </script>
+</body>
+</html>
