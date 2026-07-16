@@ -1,1336 +1,374 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ScriptureFlow — Controller</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Poppins:wght@300;500;700;800&family=Space+Mono:wght@400;700&family=Cinzel:wght@600;800&family=Bebas+Neue&family=Noto+Sans+Telugu:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScriptureFlow — OBS Output</title>
 
-    <style>
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(37, 99, 235, 0.2); border-radius: 99px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(16, 185, 129, 0.4); }
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 
-        .checkered-grid {
-            background-color: #0b0f19 !important;
-            background-image:
-                linear-gradient(45deg, #131a2b 25%, transparent 25%),
-                linear-gradient(-45deg, #131a2b 25%, transparent 25%),
-                linear-gradient(45deg, transparent 75%, #131a2b 75%),
-                linear-gradient(-45deg, transparent 75%, #131a2b 75%) !important;
-            background-size: 12px 12px !important;
-            background-position: 0 0, 0 6px, 6px -6px, -6px 0px !important;
-        }
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Montserrat:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Poppins:wght@300;500;700;800&family=Space+Mono:wght@400;700&family=Cinzel:wght@600;800&family=Bebas+Neue&family=Noto+Sans+Telugu:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-        .designer-input { background: #ffffff; border: 1px solid rgba(37, 99, 235, 0.12); transition: all 0.25s ease; }
-        .designer-input:focus { outline: none; border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    pointer-events: none;
+    padding: 0 6vw;
+    box-sizing: border-box;
+  }
+  /* Display modes */
+  #stage.mode-centered { justify-content: center; }
+  #stage.mode-fullscreen { justify-content: center; padding: 0 3vw; }
+  #stage.mode-lowerThird {
+    justify-content: flex-end;
+    padding-bottom: 7vh;
+  }
+  #stage.mode-lowerThird #versebox {
+    background: rgba(0,0,0,0.38);
+    border-radius: 14px;
+    padding: 1.4em 2.2em;
+    max-width: 92%;
+  }
 
-        input[type="range"] { appearance: none; -webkit-appearance: none; height: 4px; background: rgba(37, 99, 235, 0.1); border-radius: 99px; outline: none; }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none; width: 14px; height: 14px; background: #2563eb; border-radius: 50%;
-            cursor: pointer; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3); transition: all 0.2s ease;
-        }
-        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); background: #10b981; }
+  #versebox {
+    text-align: center;
+    line-height: 1.35;
+    transition: opacity 0.4s cubic-bezier(0.25,1,0.5,1), transform 0.4s cubic-bezier(0.25,1,0.5,1);
+    will-change: opacity, transform;
+    opacity: 0;
+    transform: scale(0.96);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    align-items: center;
+  }
+  #versebox.visible { opacity: 1; transform: scale(1); }
 
-        @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .toast { animation: toastIn 0.2s ease-out; }
-        .tab-btn.active { background: #2563eb; color: white; }
-    </style>
+  #verseText { margin: 0; }
+  #verseRef {
+    margin: 0;
+    opacity: 0.85;
+    font-family: 'Inter', sans-serif;
+  }
+  #stage.ref-hidden #verseRef { display: none; }
+
+  #debugBadge {
+    position: fixed;
+    bottom: 6px; left: 6px;
+    font: 11px/1.4 'Space Mono', monospace;
+    color: #0f0;
+    background: rgba(0,0,0,0.65);
+    padding: 6px 10px;
+    border-radius: 6px;
+    white-space: pre;
+    display: none;
+    z-index: 9999;
+  }
+  #fatalBanner {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(20,0,0,0.92);
+    color: #ff6b6b;
+    font: 600 16px/1.6 monospace;
+    text-align: center;
+    padding: 40px;
+    z-index: 10000;
+    white-space: pre-wrap;
+  }
+</style>
 </head>
-<body class="bg-[#F7F9FC] text-slate-800 font-['Inter'] h-screen w-screen overflow-hidden flex flex-col select-none">
-
-    <!-- Blocking config error screen -->
-    <div id="configErrorScreen" class="hidden fixed inset-0 bg-slate-950 z-[100] flex items-center justify-center p-6">
-        <div class="max-w-lg w-full bg-white rounded-3xl shadow-2xl p-8 border border-rose-200 space-y-4">
-            <h1 class="text-xl font-bold text-rose-600">Configuration needed</h1>
-            <p id="configErrorMessage" class="text-sm text-slate-600 leading-relaxed"></p>
-            <p class="text-xs text-slate-400">Open this file, find <code class="bg-slate-100 px-1 py-0.5 rounded text-rose-600 font-mono">firebaseConfig</code> near the top of the script, and fill in your real values. See SETUP.md.</p>
-        </div>
+<body>
+  <div id="stage" class="mode-centered">
+    <div id="versebox">
+      <p id="verseText"></p>
+      <p id="verseRef"></p>
     </div>
-
-    <!-- Connection status strip -->
-    <div id="connStrip" class="w-full px-4 py-1.5 text-[10px] font-bold flex items-center justify-between bg-amber-50 text-amber-700 border-b border-amber-200 shrink-0">
-        <span id="connStripText">Connecting to Firestore…</span>
-        <span id="connStripVersion"></span>
-    </div>
-
-    <div id="operatorView" class="flex-1 w-full flex flex-col md:flex-row bg-[#F7F9FC] min-h-0">
-
-        <!-- Sidebar: Search / Queue / Favorites / Recent -->
-        <aside class="w-full md:w-96 bg-white border-r border-blue-100/50 flex flex-col shrink-0 h-full">
-            <div class="p-4 border-b border-blue-100/30 space-y-2.5 bg-gradient-to-r from-white to-[#F7F9FC]">
-                <div class="flex items-center gap-1.5">
-                    <span class="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
-                    <span class="text-[11px] font-bold tracking-widest text-slate-500 uppercase">ScriptureFlow</span>
-                </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <select id="langSelect" class="w-full text-xs designer-input p-2 rounded-xl cursor-pointer font-medium">
-                        <option value="eng" selected>English</option>
-                        <option value="tel">తెలుగు (Telugu)</option>
-                        <option value="hin">हिन्दी (Hindi)</option>
-                    </select>
-                    <select id="translationSelect" class="w-full text-xs designer-input p-2 rounded-xl cursor-pointer font-medium">
-                        <option value="local">Local Database</option>
-                    </select>
-                </div>
-                <div class="flex gap-2">
-                    <input id="searchInput" type="text" placeholder="e.g. John 3, Genesis 1 (or John 3:16 for a single verse)"
-                        class="flex-1 text-sm designer-input p-2.5 rounded-xl" />
-                    <button id="searchBtn" onclick="doSearch()" class="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white px-4 rounded-xl text-xs font-bold transition-all active:scale-95 shrink-0">Search</button>
-                </div>
-                <p id="searchStatus" class="text-[10px] text-slate-400 min-h-[14px]"></p>
-                <button id="browseBibleBtn" type="button" onclick="openBibleBrowser()"
-                    class="w-full bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
-                    Browse Bible
-                </button>
-            </div>
-
-            <div class="flex border-b border-blue-100/30 shrink-0">
-                <button class="tab-btn active flex-1 py-2 text-[11px] font-bold uppercase tracking-wide transition-all" data-tab="queue" onclick="switchTab('queue')">Queue</button>
-                <button class="tab-btn flex-1 py-2 text-[11px] font-bold uppercase tracking-wide transition-all" data-tab="favorites" onclick="switchTab('favorites')">Favorites</button>
-                <button class="tab-btn flex-1 py-2 text-[11px] font-bold uppercase tracking-wide transition-all" data-tab="recent" onclick="switchTab('recent')">Recent</button>
-            </div>
-
-            <div id="tab-queue" class="tab-panel flex-1 overflow-y-auto p-3 space-y-2"></div>
-            <div id="tab-favorites" class="tab-panel hidden flex-1 overflow-y-auto p-3 space-y-2"></div>
-            <div id="tab-recent" class="tab-panel hidden flex-1 overflow-y-auto p-3 space-y-2"></div>
-
-            <div class="p-3 border-t border-blue-100/40 bg-blue-50/20 text-[10px] text-slate-500 leading-relaxed">
-                Point OBS at your hosted <code class="bg-white px-1 py-0.5 rounded border border-blue-100">output.html</code> — not this controller. They only communicate through Firestore.
-            </div>
-        </aside>
-
-        <!-- Center Panel -->
-        <main class="flex-1 flex flex-col h-full border-r border-blue-100/50 bg-[#F7F9FC] min-h-0">
-
-            <header class="p-4 border-b border-blue-100/30 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-                <div class="space-y-0.5">
-                    <span id="activeRefHeader" class="text-xs font-bold text-blue-600 uppercase tracking-wider">No Passage Loaded</span>
-                    <h2 id="activeRefTitle" class="text-lg font-extrabold text-slate-900 tracking-tight">Search for a reference to begin</h2>
-                </div>
-                <div class="flex items-center gap-1.5 shrink-0 flex-wrap">
-                    <button onclick="navigateVerse('prev')" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-all active:scale-95">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
-                        Prev
-                    </button>
-                    <button onclick="navigateVerse('next')" class="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white px-4 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-md shadow-blue-600/10 active:scale-95">
-                        Next
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-                    </button>
-                    <button onclick="addCurrentToFavorites()" id="btnFavorite" class="bg-white hover:bg-amber-50 text-amber-600 border border-amber-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95">★ Favorite</button>
-                    <span class="w-[1px] h-6 bg-blue-100/50 mx-1"></span>
-                    <button onclick="clearLiveOutput()" id="btnBlackout" class="bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95">
-                        Blackout
-                    </button>
-                </div>
-            </header>
-
-            <div class="flex-1 overflow-y-auto p-6 space-y-4">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-extrabold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        Presentation Board
-                    </span>
-                    <span class="text-[10px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-md">Navigate: Arrow Keys / Space / Q=Queue</span>
-                </div>
-                <div id="presenterGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5"></div>
-            </div>
-
-            <footer class="p-4 border-t border-blue-100/30 bg-white flex flex-col gap-3 shrink-0">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <div class="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></div>
-                        <span class="text-xs font-bold text-slate-700">OBS Preview (local approximation, not the real output):</span>
-                    </div>
-                    <span id="liveMonitorText" class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-100/20 transition-colors duration-200">Live Preview Sync</span>
-                </div>
-                <div id="operatorLiveMonitorScreen" class="w-full h-28 rounded-xl border border-slate-200 bg-slate-900 checkered-grid relative overflow-hidden flex flex-col justify-center items-center p-4 shadow-inner transition-all duration-300 gap-1">
-                    <p id="operatorLiveMonitorLabel" class="w-full text-center font-semibold pointer-events-none select-none transition-all duration-300"></p>
-                    <p id="operatorLiveMonitorRef" class="w-full text-center pointer-events-none select-none opacity-80 transition-all duration-300"></p>
-                </div>
-            </footer>
-        </main>
-
-        <!-- Right Sidebar: Style + Display Inspector -->
-        <aside class="w-full md:w-80 bg-white flex flex-col shrink-0 h-full border-l border-blue-100/50">
-            <div class="p-4 border-b border-blue-100/30 bg-gradient-to-r from-[#F7F9FC] to-white flex items-center gap-1.5">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.334 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z"/></svg>
-                <span class="text-[11px] font-bold tracking-widest text-slate-500 uppercase">Display Inspector</span>
-            </div>
-
-            <div class="flex-1 overflow-y-auto p-5 space-y-5">
-                <div class="space-y-1.5">
-                    <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Display Mode</label>
-                    <select id="displayModeSelect" class="w-full text-xs designer-input p-2.5 rounded-xl cursor-pointer font-medium">
-                        <option value="centered" selected>Centered Scripture</option>
-                        <option value="fullscreen">Fullscreen</option>
-                        <option value="lowerThird">Lower Third</option>
-                    </select>
-                </div>
-
-                <div class="space-y-1.5">
-                    <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Background Simulator</label>
-                    <select id="simBackground" class="w-full text-xs designer-input p-2.5 rounded-xl cursor-pointer font-medium">
-                        <option value="transparent" selected>Transparent (Checkerboard)</option>
-                        <option value="dark">Solid Dark Slate (Chroma Backup)</option>
-                        <option value="green">Classic Greenscreen (Chroma Key)</option>
-                    </select>
-                </div>
-
-                <label class="flex items-center gap-2 text-xs font-semibold text-slate-600">
-                    <input type="checkbox" id="showRefToggle" checked class="rounded"> Show reference citation
-                </label>
-
-                <div class="h-px bg-blue-100/30"></div>
-
-                <div class="space-y-2">
-                    <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Aesthetic Presets</span>
-                    <div class="grid grid-cols-2 gap-2">
-                        <button onclick="applyPreset('classic')" class="p-2 text-left border border-slate-100 hover:border-blue-400/40 bg-slate-50 rounded-xl transition-all">
-                            <span class="block text-xs font-serif font-extrabold text-amber-700">Classic Serif</span>
-                            <span class="block text-[8px] text-slate-400">Warm & Reverent</span>
-                        </button>
-                        <button onclick="applyPreset('minimal')" class="p-2 text-left border border-slate-100 hover:border-blue-400/40 bg-slate-50 rounded-xl transition-all">
-                            <span class="block text-xs font-extrabold text-slate-700">Minimal Pure</span>
-                            <span class="block text-[8px] text-slate-400">Elegant Slate</span>
-                        </button>
-                        <button onclick="applyPreset('gold')" class="p-2 text-left border border-slate-100 hover:border-blue-400/40 bg-slate-50 rounded-xl transition-all">
-                            <span class="block text-xs font-extrabold text-amber-500">Gold Glow</span>
-                            <span class="block text-[8px] text-slate-400">Cinematic</span>
-                        </button>
-                        <button onclick="applyPreset('modern')" class="p-2 text-left border border-slate-100 hover:border-blue-400/40 bg-slate-50 rounded-xl transition-all">
-                            <span class="block text-xs font-extrabold text-blue-600">Modern Clean</span>
-                            <span class="block text-[8px] text-slate-400">High Contrast</span>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="h-px bg-blue-100/30"></div>
-
-                <div class="space-y-1.5">
-                    <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Font Typography</label>
-                    <select id="styleFont" class="w-full text-xs designer-input p-2.5 rounded-xl cursor-pointer font-medium">
-                        <option value="Inter" selected>Inter (Standard Modern)</option>
-                        <option value="Montserrat">Montserrat (Geometric Pop)</option>
-                        <option value="Poppins">Poppins (Clean Round)</option>
-                        <option value="Playfair Display">Playfair Display (Classy Serif)</option>
-                        <option value="Cinzel">Cinzel (Cinematic Caps)</option>
-                        <option value="Space Mono">Space Mono (Digital Code)</option>
-                        <option value="Bebas Neue">Bebas Neue (High Impact)</option>
-                        <option value="Noto Sans Telugu">Noto Sans Telugu</option>
-                        <option value="Noto Sans Devanagari">Noto Sans Devanagari</option>
-                    </select>
-                </div>
-
-                <div class="grid grid-cols-2 gap-2">
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Alignment</label>
-                        <select id="styleAlign" class="w-full text-xs designer-input p-2 rounded-xl cursor-pointer">
-                            <option value="center" selected>Center</option>
-                            <option value="left">Left</option>
-                            <option value="right">Right</option>
-                        </select>
-                    </div>
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Font Weight</label>
-                        <select id="styleWeight" class="w-full text-xs designer-input p-2 rounded-xl cursor-pointer">
-                            <option value="300">Light</option>
-                            <option value="400">Normal</option>
-                            <option value="600" selected>Semi-Bold</option>
-                            <option value="800">Heavy</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="space-y-1">
-                    <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Vertical Position</label>
-                    <select id="styleVerticalAlign" class="w-full text-xs designer-input p-2 rounded-xl cursor-pointer">
-                        <option value="top">Top</option>
-                        <option value="center" selected>Center</option>
-                        <option value="bottom">Bottom</option>
-                    </select>
-                </div>
-
-                <div class="space-y-3.5">
-                    <div class="space-y-1">
-                        <div class="flex justify-between text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                            <span>Font Size</span><span id="valFontSize" class="text-blue-600">2.6rem</span>
-                        </div>
-                        <input type="range" id="styleFontSize" min="1" max="6" step="0.1" value="2.6" class="w-full">
-                    </div>
-                    <div class="space-y-1">
-                        <div class="flex justify-between text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                            <span>Letter Spacing</span><span id="valLetterSpacing" class="text-blue-600">0px</span>
-                        </div>
-                        <input type="range" id="styleLetterSpacing" min="-2" max="15" step="1" value="0" class="w-full">
-                    </div>
-                    <div class="space-y-1">
-                        <div class="flex justify-between text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                            <span>Glow Intensity</span><span id="valGlow" class="text-blue-600">6px</span>
-                        </div>
-                        <input type="range" id="styleGlow" min="0" max="30" step="1" value="6" class="w-full">
-                    </div>
-                    <div class="space-y-1">
-                        <div class="flex justify-between text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                            <span>Outline Width</span><span id="valOutlineWidth" class="text-blue-600">0px</span>
-                        </div>
-                        <input type="range" id="styleOutlineWidth" min="0" max="4" step="0.5" value="0" class="w-full">
-                    </div>
-                    <div class="space-y-1">
-                        <div class="flex justify-between text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                            <span>Shadow Blur</span><span id="valShadowBlur" class="text-blue-600">0px</span>
-                        </div>
-                        <input type="range" id="styleShadowBlur" min="0" max="20" step="1" value="0" class="w-full">
-                    </div>
-                </div>
-
-                <div class="h-px bg-blue-100/30"></div>
-
-                <div class="space-y-3">
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Text Color</label>
-                        <div class="flex items-center gap-2">
-                            <input type="color" id="styleActiveColor" value="#ffffff" class="w-8 h-8 rounded-lg border border-slate-200 bg-transparent cursor-pointer">
-                            <input type="text" id="styleActiveColorHex" value="#ffffff" class="w-full text-xs designer-input rounded-xl p-1.5 font-mono uppercase">
-                        </div>
-                    </div>
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Glow Color</label>
-                        <div class="flex items-center gap-2">
-                            <input type="color" id="styleHighlightColor" value="#2563eb" class="w-8 h-8 rounded-lg border border-slate-200 bg-transparent cursor-pointer">
-                            <input type="text" id="styleHighlightColorHex" value="#2563eb" class="w-full text-xs designer-input rounded-xl p-1.5 font-mono uppercase">
-                        </div>
-                    </div>
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Outline Color</label>
-                        <div class="flex items-center gap-2">
-                            <input type="color" id="styleOutlineColor" value="#000000" class="w-8 h-8 rounded-lg border border-slate-200 bg-transparent cursor-pointer">
-                            <input type="text" id="styleOutlineColorHex" value="#000000" class="w-full text-xs designer-input rounded-xl p-1.5 font-mono uppercase">
-                        </div>
-                    </div>
-                    <div class="space-y-1">
-                        <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Shadow Color</label>
-                        <div class="flex items-center gap-2">
-                            <input type="color" id="styleShadowColor" value="#000000" class="w-8 h-8 rounded-lg border border-slate-200 bg-transparent cursor-pointer">
-                            <input type="text" id="styleShadowColorHex" value="#000000" class="w-full text-xs designer-input rounded-xl p-1.5 font-mono uppercase">
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </aside>
-    </div>
-
-    <!-- Browse Bible modal (additional navigation method — does not touch search, queue, favorites, or Firestore sync) -->
-    <div id="bibleBrowserModal" class="hidden fixed inset-0 bg-slate-900/60 z-[150] flex items-center justify-center p-4">
-        <div class="bg-white w-full max-w-2xl max-h-[85vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
-            <div class="p-4 border-b border-blue-100/40 flex items-center justify-between shrink-0 bg-gradient-to-r from-white to-[#F7F9FC]">
-                <div class="flex items-center gap-2 min-w-0">
-                    <button id="bibleBrowserBackBtn" onclick="bibleBrowserBack()" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-bold shrink-0">
-                        ← Back
-                    </button>
-                    <h3 id="bibleBrowserTitle" class="text-sm font-extrabold text-slate-800 truncate">Browse Bible</h3>
-                </div>
-                <button onclick="closeBibleBrowser()" class="text-slate-400 hover:text-slate-600 text-lg font-bold px-2 shrink-0">✕</button>
-            </div>
-            <div id="bibleBrowserContent" class="flex-1 overflow-y-auto p-4 grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
-        </div>
-    </div>
-
-    <!-- Toast container -->
-    <div id="toastContainer" class="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 items-end"></div>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import {
-            getFirestore, doc, updateDoc, setDoc, getDoc, onSnapshot,
-            collection, addDoc, deleteDoc, increment, serverTimestamp, orderBy, query, limit
-        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // ====================================================================
-        // CONFIG — must exactly match output.html's firebaseConfig + APP_ID.
-        // ====================================================================
-        const firebaseConfig = {
-            apiKey: "AIzaSyAGVzu73y3qmqNNdHX6jklu4WuwU2iLyl0",
-            authDomain: "scriptureflow-2f406.firebaseapp.com",
-            projectId: "scriptureflow-2f406",
-            storageBucket: "scriptureflow-2f406.firebasestorage.app",
-            messagingSenderId: "378576419145",
-            appId: "1:378576419145:web:5127d614483d4942e48298"
-        };
-        const APP_ID = "scriptureflow-live";
-
-        // =====================================================
-        // LOCAL BIBLE ENGINE
-        // =====================================================
-
-        let englishDB = [];
-        let teluguDB = [];
-        let hindiDB = [];
-
-        let bibleReady = false;
-
-        const bookIndexes = {
-            eng: new Map(),
-            tel: new Map(),
-            hin: new Map()
-        };
-
-        let hindiAvailable = false;
-
-        async function safeLoadBible(url, label) {
-            try {
-                const res = await fetch(url);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                if (!Array.isArray(data) || data.length === 0) {
-                    throw new Error('empty or non-array JSON');
-                }
-                if (!data[0] || typeof data[0].book !== 'string' || !data[0].book) {
-                    throw new Error('missing "book" field on records');
-                }
-                console.log(`[ScriptureFlow] Loaded ${label}: ${data.length} verses`);
-                return data;
-            } catch (e) {
-                console.warn(`[ScriptureFlow] Failed to load ${label} (${url}):`, e.message);
-                return [];
-            }
-        }
-
-        async function preloadBibles() {
-            const [eng, tel, hin] = await Promise.all([
-                safeLoadBible('./data/english.json', 'English'),
-                safeLoadBible('./data/telugu-complete.json', 'Telugu'),
-                safeLoadBible('./data/hindi.json', 'Hindi')
-            ]);
-
-            englishDB = eng;
-            teluguDB = tel;
-            hindiDB = hin;
-            hindiAvailable = hindiDB.length > 0;
-
-            buildBookIndex(englishDB, bookIndexes.eng);
-            buildBookIndex(teluguDB, bookIndexes.tel);
-            buildBookIndex(hindiDB, bookIndexes.hin);
-
-            bibleReady = true;
-
-            if (!hindiAvailable) {
-                disableHindiOption();
-            }
-
-            console.log(
-                '[ScriptureFlow]',
-                'Bible databases loaded',
-                { english: englishDB.length, telugu: teluguDB.length, hindi: hindiDB.length }
-            );
-        }
-
-        function disableHindiOption() {
-            const langSelect = document.getElementById('langSelect');
-            const hinOption = langSelect?.querySelector('option[value="hin"]');
-            if (hinOption) {
-                hinOption.disabled = true;
-                hinOption.textContent = 'हिन्दी (Hindi) — unavailable';
-            }
-            if (langSelect && langSelect.value === 'hin') {
-                langSelect.value = 'eng';
-            }
-        }
-
-        function buildBookIndex(database, map) {
-            map.clear();
-            for (const verse of database) {
-                const book = verse.book.toLowerCase();
-                if (!map.has(book)) {
-                    map.set(book, []);
-                }
-                map.get(book).push(verse);
-            }
-        }
-
-        function parseScriptureReference(input) {
-            // --- MODE 1: Verse-level reference ---
-            // Matches "Book Chapter:Verse" or "Book Chapter:Verse-Verse" (optionally
-            // spanning chapters, e.g. "Romans 8:28-9:1"). This is the ORIGINAL parsing
-            // path, preserved unchanged so existing verse-exact searches keep working.
-            const verseRegex = /^(\d?\s*[a-zA-Z\s]+?)\s+(\d+):(\d+)(?:\s*-\s*(?:(\d+):)?(\d+))?$/;
-            const verseMatch = input.trim().match(verseRegex);
-            if (verseMatch) {
-                const book = verseMatch[1].trim();
-                const startChap = parseInt(verseMatch[2], 10);
-                const startVerse = parseInt(verseMatch[3], 10);
-
-                let endChap = startChap;
-                let endVerse = startVerse;
-
-                if (verseMatch[4]) {
-                    endChap = parseInt(verseMatch[4], 10);
-                    endVerse = parseInt(verseMatch[5], 10);
-                } else if (verseMatch[5]) {
-                    endVerse = parseInt(verseMatch[5], 10);
-                }
-
-                return {
-                    bookName: book,
-                    startChap,
-                    startVerse,
-                    endChap,
-                    endVerse,
-                    // chapterOnly = false tells getVersesFromMemory() to use the
-                    // existing verse-range filtering logic (unchanged behavior).
-                    chapterOnly: false
-                };
-            }
-
-            // --- MODE 2 (NEW, now PRIMARY): Chapter-level reference ---
-            // Matches "Book Chapter" with no colon and no verse number, e.g.
-            // "John 3", "Genesis 1", "Romans 8", "Psalm 23". This is the new
-            // default search style for live services: the operator only needs
-            // to know the book and chapter, not exact verse numbers.
-            const chapterRegex = /^(\d?\s*[a-zA-Z\s]+?)\s+(\d+)$/;
-            const chapterMatch = input.trim().match(chapterRegex);
-            if (chapterMatch) {
-                const book = chapterMatch[1].trim();
-                const chapter = parseInt(chapterMatch[2], 10);
-                return {
-                    bookName: book,
-                    startChap: chapter,
-                    endChap: chapter,
-                    // startVerse/endVerse are intentionally null — there is no verse
-                    // restriction in chapter mode. getVersesFromMemory() checks the
-                    // chapterOnly flag (not these values) to decide how to filter.
-                    startVerse: null,
-                    endVerse: null,
-                    chapterOnly: true
-                };
-            }
-
-            // Neither pattern matched — not a recognizable reference.
-            return null;
-        }
-
-        function getCurrentDatabase() {
-            const lang = document.getElementById('langSelect').value;
-            switch (lang) {
-                case 'tel':
-                    return {
-                        db: teluguDB,
-                        idx: bookIndexes.tel
-                    };
-                case 'hin':
-                    return {
-                        db: hindiDB,
-                        idx: bookIndexes.hin
-                    };
-                default:
-                    return {
-                        db: englishDB,
-                        idx: bookIndexes.eng
-                    };
-            }
-        }
-
-        function getBookByAlias(inputName, map) {
-            const clean = inputName.toLowerCase().replace(/[\s\.]/g, '');
-            const aliases = {
-                "jn": "john", "1jn": "1 john", "2jn": "2 john", "3jn": "3 john",
-                "1pet": "1 peter", "2pet": "2 peter", "rev": "revelation",
-                "gen": "genesis", "rom": "romans", "ps": "psalms", "psalm": "psalms",
-                "jud": "jude"
-            };
-            const target = aliases[clean] || clean;
-            for (let bookKey of map.keys()) {
-                const bookKeyClean = bookKey.replace(/[\s\.]/g, '');
-                if (bookKeyClean === target || bookKeyClean.startsWith(target)) {
-                    return bookKey;
-                }
-            }
-            return null;
-        }
-
-        function getVersesFromMemory(parsedRef) {
-            const source = getCurrentDatabase();
-            const matchedBookKey = getBookByAlias(parsedRef.bookName, source.idx);
-            if (!matchedBookKey) return [];
-
-            const bucket = source.idx.get(matchedBookKey);
-
-            // --- NEW: Chapter search path ---
-            // When parseScriptureReference() detected a chapter-only input (e.g. "John 3"),
-            // return every verse belonging to that chapter, with no verse filtering at all.
-            // Verses are sorted by verse number to guarantee correct presentation order,
-            // since JSON source order is not guaranteed by this codebase's contract.
-            if (parsedRef.chapterOnly) {
-                return bucket
-                    .filter(item => item.chapter === parsedRef.startChap)
-                    .sort((a, b) => a.verse - b.verse);
-            }
-
-            // --- ORIGINAL: Verse-range search path (unchanged) ---
-            return bucket.filter(item => {
-                if (parsedRef.startChap === parsedRef.endChap) {
-                    return (
-                        item.chapter === parsedRef.startChap &&
-                        item.verse >= parsedRef.startVerse &&
-                        item.verse <= parsedRef.endVerse
-                    );
-                }
-                if (item.chapter === parsedRef.startChap && item.verse >= parsedRef.startVerse) {
-                    return true;
-                }
-                if (item.chapter === parsedRef.endChap && item.verse <= parsedRef.endVerse) {
-                    return true;
-                }
-                if (item.chapter > parsedRef.startChap && item.chapter < parsedRef.endChap) {
-                    return true;
-                }
-                return false;
-            });
-        }
-
-        const CLIENT_ID = `controller-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-        if (firebaseConfig.apiKey === 'REPLACE_ME') {
-            document.getElementById('configErrorMessage').textContent = 'firebaseConfig still contains placeholder values.';
-            document.getElementById('configErrorScreen').classList.remove('hidden');
-            throw new Error('Configuration not complete');
-        }
-
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-        const stateDocRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'scripture_state', 'current');
-        const queueColRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'queue_items');
-        const favColRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'favorite_items');
-        const recentDocRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'meta', 'recent');
-
-        function log(...a) { console.log(`[ScriptureFlowController ${new Date().toISOString()}]`, ...a); }
-        function toast(message, kind = 'info') {
-            const el = document.createElement('div');
-            const colors = { info: 'bg-slate-900', error: 'bg-rose-600', success: 'bg-emerald-600' };
-            el.className = `toast ${colors[kind] || colors.info} text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg`;
-            el.textContent = message;
-            document.getElementById('toastContainer').appendChild(el);
-            setTimeout(() => el.remove(), 3500);
-        }
-        function escapeHTML(str) {
-            return String(str).replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
-        }
-
-        const DEFAULT_STYLES = {
-            font: 'Inter', align: 'center', weight: '600', fontSize: '2.6', letterSpacing: '0',
-            activeColor: '#ffffff', highlightColor: '#2563eb', glow: '6', verticalAlign: 'center',
-            outlineColor: '#000000', outlineWidth: '0', shadowColor: '#000000', shadowBlur: '0', refFontScale: '0.4'
-        };
-        const DEFAULT_STATE = {
-            reference: "John 3:16",
-            translationId: "local", translationName: "Local Database", translationAbbr: "LOCAL", language: "eng",
-            versesList: ["16 For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life."],
-            currentIdx: 0,
-            blackout: false,
-            displayMode: 'centered',
-            showReference: true,
-            backgroundMode: 'transparent',
-            styles: DEFAULT_STYLES
-        };
-        const PRESETS = {
-            classic:  { font: 'Playfair Display', align: 'center', weight: '600', fontSize: '2.6', letterSpacing: '0', activeColor: '#fef3c7', highlightColor: '#f59e0b', glow: '0', verticalAlign: 'center', outlineColor: '#000000', outlineWidth: '0', shadowColor: '#000000', shadowBlur: '10' },
-            minimal:  { font: 'Inter', align: 'center', weight: '400', fontSize: '2.2', letterSpacing: '0', activeColor: '#ffffff', highlightColor: '#64748b', glow: '0', verticalAlign: 'center', outlineColor: '#000000', outlineWidth: '0', shadowColor: '#000000', shadowBlur: '0' },
-            gold:     { font: 'Cinzel', align: 'center', weight: '600', fontSize: '2.8', letterSpacing: '2', activeColor: '#fde68a', highlightColor: '#b45309', glow: '14', verticalAlign: 'center', outlineColor: '#000000', outlineWidth: '0', shadowColor: '#000000', shadowBlur: '0' },
-            modern:   { font: 'Montserrat', align: 'center', weight: '700', fontSize: '2.4', letterSpacing: '0', activeColor: '#0f172a', highlightColor: '#2563eb', glow: '0', verticalAlign: 'center', outlineColor: '#ffffff', outlineWidth: '1.5', shadowColor: '#000000', shadowBlur: '0' }
-        };
-
-        let remoteState = null;
-        let remoteVersion = null;
-        let queueItems = [];
-        let favoriteItems = [];
-        let recentItems = [];
-        let lastSearchResult = null;
-        let stateInitialized = false;
-
-        function setConnStrip(text, kind) {
-            const strip = document.getElementById('connStrip');
-            const map = {
-                ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                warn: 'bg-amber-50 text-amber-700 border-amber-200',
-                error: 'bg-rose-50 text-rose-700 border-rose-200'
-            };
-            strip.className = `w-full px-4 py-1.5 text-[10px] font-bold flex items-center justify-between border-b shrink-0 ${map[kind] || map.warn}`;
-            document.getElementById('connStripText').textContent = text;
-            document.getElementById('connStripVersion').textContent = remoteVersion != null ? `v${remoteVersion}` : '';
-        }
-
-        async function ensureStateExists() {
-            if (stateInitialized) return;
-            try {
-                const snap = await getDoc(stateDocRef);
-                if (!snap.exists()) {
-                    log('No state document — creating default');
-                    await setDoc(stateDocRef, { 
-                        ...DEFAULT_STATE, 
-                        version: 1, 
-                        updatedAt: serverTimestamp(), 
-                        updatedBy: CLIENT_ID 
-                    });
-                }
-                stateInitialized = true;
-            } catch (e) {
-                log('ensureStateExists failed', e);
-                toast('Could not initialize state: ' + e.message, 'error');
-            }
-        }
-
-        async function init() {
-            try {
-                const cached = localStorage.getItem('scriptureflow_last_known_state');
-                if (cached) { remoteState = JSON.parse(cached); renderAll(); }
-            } catch (e) {}
-
-            await preloadBibles();
-
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    log('Authenticated', user.uid);
-                    await ensureStateExists();
-                    attachStateListener();
-                    attachQueueListener();
-                    attachFavoritesListener();
-                    attachRecentListener();
-                } else {
-                    signInAnonymously(auth).catch((e) => {
-                        log('Anonymous sign-in failed', e);
-                        setConnStrip('Sign-in failed — check Anonymous Auth is enabled in Firebase Console', 'error');
-                        toast('Firebase sign-in failed: ' + e.message, 'error');
-                    });
-                }
-            });
-
-            bindControlEvents();
-        }
-
-        function attachStateListener() {
-            onSnapshot(stateDocRef, { includeMetadataChanges: true }, (snap) => {
-                if (snap.exists()) {
-                    remoteState = snap.data();
-                    remoteVersion = remoteState.version ?? remoteVersion;
-                    try { localStorage.setItem('scriptureflow_last_known_state', JSON.stringify(remoteState)); } catch (e) {}
-                    setConnStrip(snap.metadata.fromCache ? 'Connected (showing cached value, confirming…)' : 'Live — synced with all outputs', snap.metadata.fromCache ? 'warn' : 'ok');
-                } else {
-                    log('State document disappeared');
-                    setConnStrip('State document not found', 'error');
-                }
-                renderAll();
-            }, (error) => {
-                log('State listener error', error);
-                setConnStrip('Disconnected: ' + error.message, 'error');
-                toast('Lost connection to Firestore: ' + error.message, 'error');
-            });
-        }
-
-        function attachQueueListener() {
-            const q = query(queueColRef, orderBy('addedAt', 'asc'), limit(50));
-            onSnapshot(q, (snap) => {
-                queueItems = [];
-                snap.forEach(d => queueItems.push({ id: d.id, ...d.data() }));
-                if (getActiveTab() === 'queue') renderTabDOM('queue');
-            }, (error) => log('Queue listener error', error));
-        }
-        function attachFavoritesListener() {
-            const q = query(favColRef, orderBy('addedAt', 'desc'), limit(50));
-            onSnapshot(q, (snap) => {
-                favoriteItems = [];
-                snap.forEach(d => favoriteItems.push({ id: d.id, ...d.data() }));
-                if (getActiveTab() === 'favorites') renderTabDOM('favorites');
-            }, (error) => log('Favorites listener error', error));
-        }
-        function attachRecentListener() {
-            onSnapshot(recentDocRef, (snap) => {
-                recentItems = snap.exists() ? (snap.data().items || []) : [];
-                if (getActiveTab() === 'recent') renderTabDOM('recent');
-            }, (error) => log('Recent listener error', error));
-        }
-
-        async function pushUpdate(fields, successMsg) {
-            try {
-                await updateDoc(stateDocRef, { 
-                    ...fields, 
-                    version: increment(1), 
-                    updatedAt: serverTimestamp(), 
-                    updatedBy: CLIENT_ID 
-                });
-                if (successMsg) toast(successMsg, 'success');
-            } catch (e) {
-                log('Write failed', e);
-                toast('Update failed to save: ' + e.message, 'error');
-                renderAll();
-            }
-        }
-
-        async function pushToRecent(item) {
-            const trimmed = [item, ...recentItems.filter(r => r.reference !== item.reference || r.translationId !== item.translationId)].slice(0, 20);
-            try { await setDoc(recentDocRef, { items: trimmed }); } catch (e) { log('recent write failed', e); }
-        }
-
-        let lastSearchTime = 0;
-        const SEARCH_COOLDOWN_MS = 500;
-
-        window.doSearch = async function () {
-            if (!bibleReady) {
-                document.getElementById('searchStatus').textContent = 'Bible loading...';
-                return;
-            }
-
-            const now = Date.now();
-            if (now - lastSearchTime < SEARCH_COOLDOWN_MS) {
-                document.getElementById('searchStatus').textContent = 'Please wait...';
-                return;
-            }
-            lastSearchTime = now;
-
-            const input = document.getElementById('searchInput').value.trim();
-            const status = document.getElementById('searchStatus');
-            const language = document.getElementById('langSelect').value;
-
-            if (getCurrentDatabase().db.length === 0) {
-                status.textContent = `No ${language === 'hin' ? 'Hindi' : language === 'tel' ? 'Telugu' : 'English'} data loaded.`;
-                return;
-            }
-
-            const parsed = parseScriptureReference(input);
-            if (!parsed) {
-                status.textContent = 'Invalid reference. e.g. "John 3" (chapter) or "John 3:16" (verse)';
-                return;
-            }
-
-            const verses = getVersesFromMemory(parsed);
-            if (!verses.length) {
-                status.textContent = 'No verses found.';
-                return;
-            }
-
-            // versesList keeps the EXACT same shape as before — an array of
-            // "<verse number> <verse text>" strings — regardless of whether this
-            // was a chapter search or a verse search. output.html, the queue,
-            // favorites, and presenter grid never need to know which mode was used.
-            const versesList = verses.map(v => `${v.verse} ${v.text}`);
-
-            // NEW: chapter-mode reference label omits verse numbers (e.g. "John 3"
-            // instead of "John 3:1-36"), since the whole chapter is being shown.
-            // Verse-mode keeps the exact original label format, unchanged.
-            const reference = parsed.chapterOnly
-                ? `${verses[0].book} ${verses[0].chapter}`
-                : (verses.length > 0
-                    ? `${verses[0].book} ${verses[0].chapter}:${verses[0].verse}${verses.length > 1 ? '-' + verses[verses.length - 1].verse : ''}`
-                    : input);
-
-            status.textContent = `Found ${versesList.length} verse(s).`;
-
-            await pushUpdate({
-                reference,
-                versesList,
-                currentIdx: 0,
-                blackout: false,
-                language,
-                translationId: 'local',
-                translationName: 'Local Database',
-                translationAbbr: 'LOCAL'
-            }, `Presenting ${reference}`);
-
-            pushToRecent({
-                reference,
-                translationId: 'local',
-                translationName: 'Local Database',
-                translationAbbr: 'LOCAL',
-                language
-            });
-        };
-
-        window.addCurrentToFavorites = async function () {
-            if (!remoteState || !remoteState.versesList) return;
-            try {
-                await addDoc(favColRef, {
-                    reference: remoteState.reference, translationId: remoteState.translationId,
-                    translationName: remoteState.translationName, translationAbbr: remoteState.translationAbbr,
-                    language: remoteState.language, versesList: remoteState.versesList, addedAt: serverTimestamp()
-                });
-                toast(`Added "${remoteState.reference}" to favorites`, 'success');
-            } catch (e) { toast('Could not save favorite: ' + e.message, 'error'); }
-        };
-
-        window.addToQueue = async function () {
-            if (!remoteState || !remoteState.versesList) { toast('Search for a passage first', 'error'); return; }
-            try {
-                await addDoc(queueColRef, { ...remoteState, addedAt: serverTimestamp() });
-                toast(`Queued "${remoteState.reference}"`, 'success');
-            } catch (e) { toast('Could not queue passage: ' + e.message, 'error'); }
-        };
-
-        window.loadPassageObject = function (item, successPrefix = 'Presenting') {
-            if (!item || !item.versesList || !Array.isArray(item.versesList)) {
-                toast('Invalid passage data', 'error');
-                return;
-            }
-            pushUpdate({
-                reference: item.reference, versesList: item.versesList, currentIdx: 0, blackout: false,
-                translationId: item.translationId, translationName: item.translationName,
-                translationAbbr: item.translationAbbr, language: item.language
-            }, `${successPrefix} ${item.reference}`);
-            pushToRecent({ reference: item.reference, translationId: item.translationId, translationName: item.translationName, translationAbbr: item.translationAbbr, language: item.language });
-        };
-
-        window.removeFromQueue = async function (id) { try { await deleteDoc(doc(queueColRef, id)); } catch (e) { toast('Remove failed: ' + e.message, 'error'); } };
-        window.removeFromFavorites = async function (id) { try { await deleteDoc(doc(favColRef, id)); } catch (e) { toast('Remove failed: ' + e.message, 'error'); } };
-
-        window.navigateVerse = function (direction) {
-            if (!remoteState) return;
-            let idx = remoteState.currentIdx;
-            if (direction === 'next' && idx < remoteState.versesList.length - 1) idx++;
-            else if (direction === 'prev' && idx > 0) idx--;
-            else return;
-            pushUpdate({ currentIdx: idx, blackout: false });
-        };
-        window.clearLiveOutput = function () {
-            if (!remoteState) return;
-            pushUpdate({ blackout: !remoteState.blackout });
-        };
-        window.applyPreset = function (presetKey) {
-            const pr = PRESETS[presetKey];
-            if (!pr) return;
-            pushUpdate({ styles: pr }, `Applied "${presetKey}" preset`);
-        };
-
-        // =====================================================
-        // BIBLE BROWSER (Browse Bible) — additional navigation method.
-        // Does NOT modify Firestore sync, auth, OBS output, queue, favorites,
-        // recent searches, language switching, verse rendering,
-        // parseScriptureReference(), or getVersesFromMemory(). It only reuses
-        // the existing in-memory database + getVersesFromMemory() chapter path,
-        // and hands off to the same pushUpdate()/pushToRecent() calls that
-        // doSearch() already uses, so queue/favorites/preview/live output/
-        // Firestore sync behave exactly as with a typed search.
-        // =====================================================
-
-        let bibleBrowserStep = 'books'; // 'books' | 'chapters' | 'verses'
-        let bibleBrowserBookKey = null;
-        let bibleBrowserBookDisplay = null;
-        let bibleBrowserChapter = null;
-
-        function getBrowserBookList() {
-            // Preserves canonical Bible order because bookIndexes is built by
-            // iterating the source JSON in order (buildBookIndex), and Map
-            // preserves insertion order — no new sorting/logic added.
-            const { idx } = getCurrentDatabase();
-            const list = [];
-            for (const [bookKey, bucket] of idx.entries()) {
-                if (bucket.length) list.push({ key: bookKey, display: bucket[0].book });
-            }
-            return list;
-        }
-
-        function getBrowserChapterCount(bookKey) {
-            const { idx } = getCurrentDatabase();
-            const bucket = idx.get(bookKey) || [];
-            let max = 0;
-            for (const v of bucket) if (v.chapter > max) max = v.chapter;
-            return max;
-        }
-
-        window.openBibleBrowser = function () {
-            if (!bibleReady) { toast('Bible still loading…', 'error'); return; }
-            bibleBrowserStep = 'books';
-            bibleBrowserBookKey = null;
-            bibleBrowserBookDisplay = null;
-            bibleBrowserChapter = null;
-            document.getElementById('bibleBrowserModal').classList.remove('hidden');
-            renderBibleBrowser();
-        };
-
-        window.closeBibleBrowser = function () {
-            document.getElementById('bibleBrowserModal').classList.add('hidden');
-        };
-
-        window.bibleBrowserBack = function () {
-            if (bibleBrowserStep === 'verses') {
-                bibleBrowserStep = 'chapters';
-            } else if (bibleBrowserStep === 'chapters') {
-                bibleBrowserStep = 'books';
-                bibleBrowserBookKey = null;
-                bibleBrowserBookDisplay = null;
-            }
-            renderBibleBrowser();
-        };
-
-        window.bibleBrowserSelectBook = function (bookKey, display) {
-            bibleBrowserBookKey = bookKey;
-            bibleBrowserBookDisplay = display;
-            bibleBrowserStep = 'chapters';
-            renderBibleBrowser();
-        };
-
-        window.bibleBrowserSelectChapter = function (chapterNum) {
-            bibleBrowserChapter = chapterNum;
-            bibleBrowserStep = 'verses';
-            renderBibleBrowser();
-        };
-
-        window.bibleBrowserSelectVerse = async function (verseNum) {
-            // Build the same parsedRef shape parseScriptureReference() already
-            // produces for chapter-only input (e.g. typing "John 3"), then run
-            // it through the existing, unmodified getVersesFromMemory().
-            const parsedRef = {
-                bookName: bibleBrowserBookDisplay,
-                startChap: bibleBrowserChapter,
-                endChap: bibleBrowserChapter,
-                startVerse: null,
-                endVerse: null,
-                chapterOnly: true
-            };
-            const verses = getVersesFromMemory(parsedRef);
-            if (!verses.length) { toast('No verses found.', 'error'); return; }
-
-            const versesList = verses.map(v => `${v.verse} ${v.text}`);
-            const reference = `${verses[0].book} ${verses[0].chapter}`;
-            const startIdx = Math.max(0, verses.findIndex(v => v.verse === verseNum));
-            const language = document.getElementById('langSelect').value;
-
-            // Identical push shape to doSearch() — same downstream behavior for
-            // Firestore sync, OBS output, queue, favorites, and recent list.
-            await pushUpdate({
-                reference,
-                versesList,
-                currentIdx: startIdx,
-                blackout: false,
-                language,
-                translationId: 'local',
-                translationName: 'Local Database',
-                translationAbbr: 'LOCAL'
-            }, `Presenting ${reference}`);
-
-            pushToRecent({
-                reference,
-                translationId: 'local',
-                translationName: 'Local Database',
-                translationAbbr: 'LOCAL',
-                language
-            });
-
-            closeBibleBrowser();
-        };
-
-        function renderBibleBrowser() {
-            const title = document.getElementById('bibleBrowserTitle');
-            const backBtn = document.getElementById('bibleBrowserBackBtn');
-            const content = document.getElementById('bibleBrowserContent');
-            content.innerHTML = '';
-            backBtn.classList.toggle('hidden', bibleBrowserStep === 'books');
-
-            if (bibleBrowserStep === 'books') {
-                title.textContent = 'Browse Bible — Select a Book';
-                const books = getBrowserBookList();
-                if (!books.length) {
-                    content.className = 'flex-1 overflow-y-auto p-4';
-                    content.innerHTML = `<p class="text-xs text-slate-400 text-center py-6">No books available for this language.</p>`;
-                    return;
-                }
-                content.className = 'flex-1 overflow-y-auto p-4 grid grid-cols-2 sm:grid-cols-3 gap-2';
-                books.forEach(({ key, display }) => {
-                    const btn = document.createElement('button');
-                    btn.className = 'p-3 text-left bg-slate-50 hover:bg-blue-50 border border-slate-100 hover:border-blue-300 rounded-xl text-xs font-bold text-slate-700 hover:text-blue-700 transition-all truncate';
-                    btn.textContent = display;
-                    btn.onclick = () => window.bibleBrowserSelectBook(key, display);
-                    content.appendChild(btn);
-                });
-            } else if (bibleBrowserStep === 'chapters') {
-                title.textContent = `${bibleBrowserBookDisplay} — Select a Chapter`;
-                const count = getBrowserChapterCount(bibleBrowserBookKey);
-                content.className = 'flex-1 overflow-y-auto p-4 grid grid-cols-4 sm:grid-cols-6 gap-2';
-                for (let c = 1; c <= count; c++) {
-                    const btn = document.createElement('button');
-                    btn.className = 'p-3 bg-slate-50 hover:bg-blue-50 border border-slate-100 hover:border-blue-300 rounded-xl text-xs font-bold text-slate-700 hover:text-blue-700 transition-all';
-                    btn.textContent = c;
-                    btn.onclick = () => window.bibleBrowserSelectChapter(c);
-                    content.appendChild(btn);
-                }
-            } else if (bibleBrowserStep === 'verses') {
-                title.textContent = `${bibleBrowserBookDisplay} ${bibleBrowserChapter}`;
-                const parsedRef = {
-                    bookName: bibleBrowserBookDisplay,
-                    startChap: bibleBrowserChapter,
-                    endChap: bibleBrowserChapter,
-                    startVerse: null,
-                    endVerse: null,
-                    chapterOnly: true
-                };
-                const verses = getVersesFromMemory(parsedRef);
-                content.className = 'flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 gap-2';
-                if (!verses.length) {
-                    content.innerHTML = `<p class="text-xs text-slate-400 text-center py-6 col-span-2">No verses found.</p>`;
-                    return;
-                }
-                verses.forEach(v => {
-                    const btn = document.createElement('button');
-                    btn.className = 'p-3 text-left bg-slate-50 hover:bg-blue-50 border border-slate-100 hover:border-blue-300 rounded-xl transition-all';
-                    btn.innerHTML = `<span class="block text-[9px] font-extrabold text-blue-600 uppercase tracking-widest mb-0.5">Verse ${v.verse}</span><span class="block text-xs font-semibold text-slate-800 line-clamp-3">${escapeHTML(v.text)}</span>`;
-                    btn.onclick = () => window.bibleBrowserSelectVerse(v.verse);
-                    content.appendChild(btn);
-                });
-            }
-        }
-
-        // Refresh an open browser if the language changes mid-browse (purely
-        // additive listener — does not alter the existing langSelect behavior).
-        document.getElementById('langSelect').addEventListener('change', () => {
-            if (!document.getElementById('bibleBrowserModal').classList.contains('hidden')) {
-                window.openBibleBrowser();
-            }
+  </div>
+  <div id="debugBadge"></div>
+  <div id="fatalBanner"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // ======================================================================
+    // CONFIG — MUST MATCH controller.html's firebaseConfig
+    // ======================================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAGVzu73y3qmqNNdHX6jklu4WuwU2iLyl0",
+      authDomain: "scriptureflow-2f406.firebaseapp.com",
+      projectId: "scriptureflow-2f406",
+      storageBucket: "scriptureflow-2f406.firebasestorage.app",
+      messagingSenderId: "378576419145",
+      appId: "1:378576419145:web:5127d614483d4942e48298"
+    };
+
+    const APP_ID = "scriptureflow-live";
+    const STATE_PATH = ['artifacts', APP_ID, 'public', 'data', 'scripture_state', 'current'];
+
+    const params = new URLSearchParams(window.location.search);
+    const DEBUG = params.get('debug') === '1';
+    const debugBadge = document.getElementById('debugBadge');
+    const fatalBanner = document.getElementById('fatalBanner');
+    if (DEBUG) debugBadge.style.display = 'block';
+
+    function log(...a)  { console.log(`[ScriptureFlowOutput ${new Date().toISOString()}]`, ...a); updateBadge(); }
+    function warn(...a) { console.warn('[ScriptureFlowOutput WARN]', ...a); updateBadge(); }
+    function err(...a)  { console.error('[ScriptureFlowOutput ERROR]', ...a); updateBadge(); }
+
+    let lastVersion = null, lastEventAt = Date.now(), connectionState = 'booting', reconnectAttempt = 0;
+    function updateBadge() {
+      if (!DEBUG) return;
+      debugBadge.textContent =
+        `state: ${connectionState}\nversion: ${lastVersion}\nlast event: ${new Date(lastEventAt).toLocaleTimeString()}\nreconnects: ${reconnectAttempt}`;
+    }
+
+    function showFatal(message) { fatalBanner.textContent = message; fatalBanner.style.display = 'flex'; }
+    function hideFatal() { fatalBanner.style.display = 'none'; }
+
+    if (firebaseConfig.apiKey === 'REPLACE_ME') {
+      showFatal('ScriptureFlow Output: Firebase config not set.\nOpen output.html and replace the placeholder firebaseConfig values, then refresh.');
+      err('firebaseConfig still has placeholder values — refusing to boot silently.');
+      throw new Error('Firebase config not configured');
+    }
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    const docRef = doc(db, ...STATE_PATH);
+
+    const stageEl = document.getElementById('stage');
+    const verseBoxEl = document.getElementById('versebox');
+    const verseTextEl = document.getElementById('verseText');
+    const verseRefEl = document.getElementById('verseRef');
+
+    let currentRenderKey = null;
+    let renderTimer = null;
+
+    const SCRIPT_FONT_FALLBACK = {
+      en: 'sans-serif',
+      te: '"Noto Sans Telugu", sans-serif',
+      hi: '"Noto Sans Devanagari", sans-serif'
+    };
+
+    function validateState(data) {
+      if (!data) return null;
+      
+      if (!Array.isArray(data.versesList)) {
+        err('Invalid versesList type:', typeof data.versesList);
+        return null;
+      }
+      
+      if (data.versesList.length === 0) {
+        err('Empty versesList');
+        return null;
+      }
+      
+      const currentIdx = Math.max(0, Math.min(Math.floor(Number(data.currentIdx || 0)), data.versesList.length - 1));
+      const blackout = Boolean(data.blackout);
+      const reference = String(data.reference || '');
+      const translationAbbr = String(data.translationAbbr || '');
+      const language = String(data.language || 'en');
+      const version = data.version;
+      const displayMode = String(data.displayMode || 'centered');
+      const showReference = data.showReference !== false;
+      const backgroundMode = String(data.backgroundMode || 'transparent');
+      const styles = data.styles || {};
+      
+      return {
+        versesList: data.versesList,
+        currentIdx,
+        blackout,
+        reference,
+        translationAbbr,
+        language,
+        version,
+        displayMode,
+        showReference,
+        backgroundMode,
+        styles
+      };
+    }
+
+    function applyStyles(data) {
+      const st = Object.assign({
+        font: 'Inter', align: 'center', weight: '600', fontSize: '2.6',
+        letterSpacing: '0', activeColor: '#ffffff', highlightColor: '#e11d48',
+        glow: '6', verticalAlign: 'center',
+        outlineColor: '#000000', outlineWidth: '0',
+        shadowColor: '#000000', shadowBlur: '0',
+        refFontScale: '0.4'
+      }, data.styles || {});
+
+      const lang = data.language || 'en';
+      const fallback = SCRIPT_FONT_FALLBACK[lang] || 'sans-serif';
+      const fontStack = `"${st.font}", ${fallback}`;
+
+      verseBoxEl.style.fontFamily = fontStack;
+      verseTextEl.style.textAlign = st.align;
+      verseTextEl.style.fontWeight = st.weight;
+      verseTextEl.style.fontSize = `${st.fontSize}rem`;
+      verseTextEl.style.letterSpacing = `${st.letterSpacing}px`;
+      verseTextEl.style.color = st.activeColor;
+
+      const glowShadow = parseInt(st.glow) > 0
+        ? `0 0 ${st.glow}px ${st.highlightColor}, 0 0 ${parseInt(st.glow)/2}px ${st.activeColor}`
+        : '';
+      const dropShadow = parseFloat(st.shadowBlur) > 0
+        ? `2px 3px ${st.shadowBlur}px ${st.shadowColor}`
+        : '';
+      verseTextEl.style.textShadow = [dropShadow, glowShadow].filter(Boolean).join(', ') || 'none';
+      verseTextEl.style.webkitTextStroke = parseFloat(st.outlineWidth) > 0
+        ? `${st.outlineWidth}px ${st.outlineColor}` : '0px transparent';
+
+      verseRefEl.style.fontSize = `${(parseFloat(st.fontSize) * parseFloat(st.refFontScale || 0.4)).toFixed(2)}rem`;
+      verseRefEl.style.color = st.activeColor;
+      verseRefEl.style.fontWeight = '600';
+
+      stageEl.className = `mode-${data.displayMode || 'centered'}`;
+      if (data.showReference === false) stageEl.classList.add('ref-hidden');
+      else stageEl.classList.remove('ref-hidden');
+
+      if (st.verticalAlign === 'top') stageEl.style.justifyContent = 'flex-start';
+      else if (st.verticalAlign === 'bottom') stageEl.style.justifyContent = 'flex-end';
+      else if (!stageEl.classList.contains('mode-lowerThird')) stageEl.style.justifyContent = 'center';
+    }
+
+    function render(data) {
+      const validated = validateState(data);
+      if (!validated) { 
+        renderText('', ''); 
+        return; 
+      }
+
+      const { versesList, currentIdx, blackout, reference, translationAbbr, version } = validated;
+      const text = (!blackout && currentIdx < versesList.length) ? versesList[currentIdx] : '';
+      const refLabel = text ? `${reference}${translationAbbr ? ' (' + translationAbbr + ')' : ''}` : '';
+      const key = `${version}::${currentIdx}::${blackout}::${text}`;
+
+      applyStyles(validated);
+
+      if (key === currentRenderKey) return;
+      currentRenderKey = key;
+      lastVersion = version ?? lastVersion;
+      renderText(text, refLabel);
+      log('Rendered', { currentIdx, blackout, version, reference, text: text.slice(0, 40) });
+    }
+
+    function renderText(text, refLabel) {
+      verseBoxEl.classList.remove('visible');
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => {
+        verseTextEl.textContent = text;
+        verseRefEl.textContent = refLabel;
+        
+        requestAnimationFrame(() => {
+          if (text) {
+            verseBoxEl.classList.add('visible');
+          }
         });
+      }, 220);
+    }
 
-        function getActiveTab() {
-            return document.querySelector('.tab-btn.active')?.dataset.tab || 'queue';
+    let unsubscribe = null;
+    let destroyed = false;
+
+    function attachListener() {
+      if (destroyed) return;
+      if (unsubscribe) { try { unsubscribe(); } catch (e) {} }
+      connectionState = 'connecting';
+      log('Attaching Firestore listener', { attempt: reconnectAttempt });
+
+      unsubscribe = onSnapshot(
+        docRef,
+        { includeMetadataChanges: true },
+        (snap) => {
+          connectionState = snap.metadata.fromCache ? 'connected (cache)' : 'connected (live)';
+          lastEventAt = Date.now();
+          reconnectAttempt = 0;
+          hideFatal();
+          if (snap.exists()) render(snap.data());
+          else { warn('State document does not exist yet — open controller.html and load a passage once.'); render(null); }
+        },
+        (error) => {
+          connectionState = 'error';
+          err('onSnapshot error', error.code, error.message);
+          if (error.code === 'permission-denied') {
+            showFatal('ScriptureFlow Output: Firestore permission denied.');
+          }
+          scheduleReconnect();
         }
-        window.switchTab = function (tab) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-            document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('hidden', p.id !== `tab-${tab}`));
-            renderTabDOM(tab);
-        };
+      );
+    }
 
-        function renderTabDOM(tab) {
-            const container = document.getElementById(`tab-${tab}`);
-            let items = tab === 'queue' ? queueItems : tab === 'favorites' ? favoriteItems : recentItems;
-            container.innerHTML = '';
+    function scheduleReconnect() {
+      if (destroyed) return;
+      reconnectAttempt += 1;
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 15000);
+      log(`Reconnecting in ${delay}ms`, { attempt: reconnectAttempt });
+      setTimeout(attachListener, delay);
+    }
 
-            if (tab === 'queue') {
-                const addBtn = document.createElement('button');
-                addBtn.className = 'w-full text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-xl py-2 mb-1';
-                addBtn.textContent = '+ Queue Current Passage';
-                addBtn.onclick = () => window.addToQueue();
-                container.appendChild(addBtn);
-            }
+    async function manualResync(reason) {
+      try {
+        log('Manual resync:', reason);
+        const snap = await getDoc(docRef);
+        lastEventAt = Date.now();
+        if (snap.exists()) render(snap.data());
+      } catch (e) { err('Manual resync failed', e); }
+    }
 
-            if (!items.length) {
-                const empty = document.createElement('p');
-                empty.className = 'text-xs text-slate-400 text-center py-6';
-                empty.textContent = tab === 'queue' ? 'Queue is empty — search then queue current passage.'
-                    : tab === 'favorites' ? 'No favorites yet — star a passage while it\'s live.'
-                    : 'No recent passages yet.';
-                container.appendChild(empty);
-                return;
-            }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') manualResync('visibility-restored');
+    });
+    window.addEventListener('online', () => manualResync('network-online'));
+    window.addEventListener('pageshow', () => manualResync('pageshow'));
 
-            items.forEach((item) => {
-                const div = document.createElement('div');
-                div.className = 'p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200/50 cursor-pointer transition-all flex items-center justify-between gap-2 shadow-sm';
-                div.innerHTML = `
-                    <div class="min-w-0">
-                        <span class="block text-xs font-bold text-slate-800 truncate">${escapeHTML(item.reference)}</span>
-                        <span class="block text-[9px] text-slate-500 truncate">${escapeHTML(item.translationAbbr || item.translationName || '')}</span>
-                    </div>
-                    <span class="text-[8px] bg-blue-50 text-blue-600 font-bold px-1.5 py-0.5 rounded border border-blue-100/30 shrink-0">Load</span>`;
-                div.addEventListener('click', (e) => window.loadPassageObject(item));
-                if (tab !== 'recent') {
-                    const del = document.createElement('button');
-                    del.className = 'ml-2 text-slate-300 hover:text-rose-500 text-xs shrink-0';
-                    del.textContent = '✕';
-                    del.onclick = (e) => { e.stopPropagation(); tab === 'queue' ? window.removeFromQueue(item.id) : window.removeFromFavorites(item.id); };
-                    div.appendChild(del);
-                }
-                container.appendChild(div);
-            });
-        }
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        log('Authenticated', user.uid);
+        manualResync('initial-load').finally(attachListener);
+      }
+    });
 
-        function renderAll() {
-            if (!remoteState) return;
-            renderPresenterGridDOM();
-            renderMonitorPreview();
-            document.getElementById('activeRefTitle').textContent = remoteState.reference || 'Untitled passage';
-            document.getElementById('activeRefHeader').textContent = `${remoteState.translationAbbr || remoteState.translationName || ''} • Synced via Firestore`;
+    signInAnonymously(auth).catch((e) => {
+      err('Anonymous sign-in failed', e.code, e.message);
+      if (
+        e.code === 'auth/admin-restricted-operation' || 
+        e.code === 'auth/operation-not-allowed' || 
+        e.code === 'auth/configuration-not-found'
+      ) {
+        showFatal(
+          'ScriptureFlow Output — Authentication Setup Required:\n\n' +
+          'Anonymous Authentication is currently disabled or unconfigured on your Firebase project.\n\n' +
+          'How to fix this:\n' +
+          '1. Go to your Firebase Console (console.firebase.google.com)\n' +
+          '2. Navigate to Authentication -> Sign-in method\n' +
+          '3. Enable the "Anonymous" provider and save changes.\n' +
+          '4. Reload this page once enabled!'
+        );
+      } else {
+        showFatal(`Firebase Authentication Error:\n[${e.code}] ${e.message}`);
+      }
+    });
 
-            const btnBlackout = document.getElementById('btnBlackout');
-            if (remoteState.blackout) {
-                btnBlackout.textContent = "Live Output";
-                btnBlackout.className = "bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 animate-pulse";
-            } else {
-                btnBlackout.textContent = "Blackout";
-                btnBlackout.className = "bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95";
-            }
-            syncControlsToRemoteState();
-        }
-
-        function renderMonitorPreview() {
-            const monitorScreen = document.getElementById('operatorLiveMonitorScreen');
-            const monitorLabel = document.getElementById('operatorLiveMonitorLabel');
-            const monitorRef = document.getElementById('operatorLiveMonitorRef');
-            const monitorText = document.getElementById('liveMonitorText');
-            const st = remoteState.styles || DEFAULT_STYLES;
-            const scaleFactor = 0.35;
-            const simBg = remoteState?.backgroundMode || 'transparent';
-            const SCRIPT_FONT_FALLBACK = { en: 'sans-serif', te: '"Noto Sans Telugu", sans-serif', hi: '"Noto Sans Devanagari", sans-serif' };
-            const lang = remoteState.language || 'en';
-            const fallback = SCRIPT_FONT_FALLBACK[lang] || 'sans-serif';
-
-            monitorScreen.className = "w-full h-28 rounded-xl border border-slate-200/50 relative overflow-hidden flex flex-col p-4 shadow-inner transition-all duration-300 gap-1";
-            if (simBg === 'transparent') { monitorScreen.classList.add('checkered-grid'); monitorScreen.style.backgroundColor = ''; }
-            else if (simBg === 'dark') { monitorScreen.style.backgroundColor = '#0f172a'; }
-            else if (simBg === 'green') { monitorScreen.style.backgroundColor = '#00b140'; }
-
-            monitorLabel.style.fontFamily = `"${st.font}", ${fallback}`;
-            monitorLabel.style.textAlign = st.align;
-            monitorLabel.style.fontWeight = st.weight;
-            monitorLabel.style.fontSize = `${parseFloat(st.fontSize) * scaleFactor}rem`;
-            monitorLabel.style.letterSpacing = `${parseFloat(st.letterSpacing) * scaleFactor}px`;
-            monitorLabel.style.color = st.activeColor;
-            monitorLabel.style.lineHeight = '1.3';
-            monitorScreen.style.justifyContent = st.verticalAlign === 'top' ? 'flex-start' : st.verticalAlign === 'bottom' ? 'flex-end' : 'center';
-            monitorLabel.style.textShadow = parseInt(st.glow) > 0
-                ? `0 0 ${parseInt(st.glow) * scaleFactor}px ${st.highlightColor}, 0 0 ${(parseInt(st.glow)/2) * scaleFactor}px ${st.activeColor}`
-                : 'none';
-            monitorRef.style.fontSize = `${parseFloat(st.fontSize) * scaleFactor * 0.4}rem`;
-            monitorRef.style.color = st.activeColor;
-
-            const versesList = remoteState.versesList || [];
-            if (remoteState.blackout || remoteState.currentIdx >= versesList.length) {
-                monitorLabel.innerHTML = ''; monitorRef.innerHTML = '';
-                monitorText.textContent = "- Blackout Active -";
-                monitorText.className = "text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200/50";
-            } else {
-                monitorLabel.innerHTML = `<span>${escapeHTML(versesList[remoteState.currentIdx])}</span>`;
-                monitorRef.innerHTML = remoteState.showReference === false ? '' : `<span>${escapeHTML(remoteState.reference)}${remoteState.translationAbbr ? ' (' + escapeHTML(remoteState.translationAbbr) + ')' : ''}</span>`;
-                monitorText.textContent = `Live: Verse ${remoteState.currentIdx + 1}/${versesList.length} (v${remoteVersion ?? '?'})`;
-                monitorText.className = "text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-100/20";
-            }
-        }
-
-        function renderPresenterGridDOM() {
-            const container = document.getElementById('presenterGrid');
-            container.innerHTML = '';
-            (remoteState.versesList || []).forEach((line, idx) => {
-                const isCurrent = idx === remoteState.currentIdx && !remoteState.blackout;
-                const div = document.createElement('div');
-                div.className = `p-4 h-24 rounded-2xl flex flex-col justify-between cursor-pointer transition-all border ${
-                    isCurrent ? 'bg-[#F7F9FC] border-blue-400 shadow-lg shadow-blue-600/5 ring-1 ring-blue-400' : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
-                }`;
-                div.innerHTML = `
-                    <div class="flex items-center justify-between">
-                        <span class="text-[9px] font-extrabold ${isCurrent ? 'text-blue-600' : 'text-slate-400'} uppercase tracking-widest">Verse ${idx + 1}</span>
-                        ${isCurrent ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>' : ''}
-                    </div>
-                    <p class="text-xs font-semibold text-slate-800 line-clamp-3">${escapeHTML(line)}</p>`;
-                div.addEventListener('click', () => pushUpdate({ currentIdx: idx, blackout: false }));
-                container.appendChild(div);
-            });
-        }
-
-        function bindControlEvents() {
-            const sizeRange = document.getElementById('styleFontSize');
-            const spaceRange = document.getElementById('styleLetterSpacing');
-            const glowRange = document.getElementById('styleGlow');
-            const outlineWidthRange = document.getElementById('styleOutlineWidth');
-            const shadowBlurRange = document.getElementById('styleShadowBlur');
-            const fontSelect = document.getElementById('styleFont');
-            const alignSelect = document.getElementById('styleAlign');
-            const weightSelect = document.getElementById('styleWeight');
-            const verticalAlignSelect = document.getElementById('styleVerticalAlign');
-            const activeColorInput = document.getElementById('styleActiveColor');
-            const activeColorHex = document.getElementById('styleActiveColorHex');
-            const highlightColorInput = document.getElementById('styleHighlightColor');
-            const highlightColorHex = document.getElementById('styleHighlightColorHex');
-            const outlineColorInput = document.getElementById('styleOutlineColor');
-            const outlineColorHex = document.getElementById('styleOutlineColorHex');
-            const shadowColorInput = document.getElementById('styleShadowColor');
-            const shadowColorHex = document.getElementById('styleShadowColorHex');
-            const simBgSelect = document.getElementById('simBackground');
-            const displayModeSelect = document.getElementById('displayModeSelect');
-            const showRefToggle = document.getElementById('showRefToggle');
-
-            const updateLabelTexts = () => {
-                document.getElementById('valFontSize').textContent = `${sizeRange.value}rem`;
-                document.getElementById('valLetterSpacing').textContent = `${spaceRange.value}px`;
-                document.getElementById('valGlow').textContent = `${glowRange.value}px`;
-                document.getElementById('valOutlineWidth').textContent = `${outlineWidthRange.value}px`;
-                document.getElementById('valShadowBlur').textContent = `${shadowBlurRange.value}px`;
-            };
-
-            let debounceTimer = null;
-            const triggerStateUpload = () => {
-                updateLabelTexts();
-                const styles = {
-                    font: fontSelect.value, align: alignSelect.value, weight: weightSelect.value,
-                    fontSize: sizeRange.value, letterSpacing: spaceRange.value,
-                    activeColor: activeColorInput.value, highlightColor: highlightColorInput.value,
-                    glow: glowRange.value, verticalAlign: verticalAlignSelect.value,
-                    outlineColor: outlineColorInput.value, outlineWidth: outlineWidthRange.value,
-                    shadowColor: shadowColorInput.value, shadowBlur: shadowBlurRange.value
-                };
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => pushUpdate({ styles }), 300);
-            };
-
-            [sizeRange, spaceRange, glowRange, outlineWidthRange, shadowBlurRange, fontSelect, alignSelect, weightSelect, verticalAlignSelect, activeColorInput, highlightColorInput, outlineColorInput, shadowColorInput]
-                .forEach(sel => sel && ['input', 'change'].forEach(evt => sel.addEventListener(evt, triggerStateUpload)));
-
-            simBgSelect.addEventListener('change', () => pushUpdate({ backgroundMode: simBgSelect.value }));
-            displayModeSelect.addEventListener('change', () => pushUpdate({ displayMode: displayModeSelect.value }));
-            showRefToggle.addEventListener('change', () => pushUpdate({ showReference: showRefToggle.checked }));
-
-            const hexSync = (hexInput, colorInput) => hexInput.addEventListener('input', (e) => {
-                if (/^#[0-9A-F]{6}$/i.test(e.target.value)) { colorInput.value = e.target.value; triggerStateUpload(); }
-            });
-            hexSync(activeColorHex, activeColorInput); activeColorInput.addEventListener('input', e => activeColorHex.value = e.target.value);
-            hexSync(highlightColorHex, highlightColorInput); highlightColorInput.addEventListener('input', e => highlightColorHex.value = e.target.value);
-            hexSync(outlineColorHex, outlineColorInput); outlineColorInput.addEventListener('input', e => outlineColorHex.value = e.target.value);
-            hexSync(shadowColorHex, shadowColorInput); shadowColorInput.addEventListener('input', e => shadowColorHex.value = e.target.value);
-
-            document.getElementById('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') window.doSearch(); });
-
-            window.addEventListener('keydown', (e) => {
-                if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
-                if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); navigateVerse('next'); }
-                else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); navigateVerse('prev'); }
-                else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); clearLiveOutput(); }
-                else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); window.addToQueue(); }
-            });
-        }
-
-        function syncControlsToRemoteState() {
-            const st = remoteState?.styles;
-            if (!st) return;
-            document.getElementById('styleFont').value = st.font;
-            document.getElementById('styleAlign').value = st.align;
-            document.getElementById('styleWeight').value = st.weight;
-            document.getElementById('styleFontSize').value = st.fontSize;
-            document.getElementById('styleLetterSpacing').value = st.letterSpacing;
-            document.getElementById('styleActiveColor').value = st.activeColor;
-            document.getElementById('styleActiveColorHex').value = st.activeColor;
-            document.getElementById('styleHighlightColor').value = st.highlightColor;
-            document.getElementById('styleHighlightColorHex').value = st.highlightColor;
-            document.getElementById('styleGlow').value = st.glow;
-            document.getElementById('styleVerticalAlign').value = st.verticalAlign;
-            document.getElementById('styleOutlineColor').value = st.outlineColor || '#000000';
-            document.getElementById('styleOutlineColorHex').value = st.outlineColor || '#000000';
-            document.getElementById('styleOutlineWidth').value = st.outlineWidth || '0';
-            document.getElementById('styleShadowColor').value = st.shadowColor || '#000000';
-            document.getElementById('styleShadowColorHex').value = st.shadowColor || '#000000';
-            document.getElementById('styleShadowBlur').value = st.shadowBlur || '0';
-            document.getElementById('valFontSize').textContent = `${st.fontSize}rem`;
-            document.getElementById('valLetterSpacing').textContent = `${st.letterSpacing}px`;
-            document.getElementById('valGlow').textContent = `${st.glow}px`;
-            document.getElementById('valOutlineWidth').textContent = `${st.outlineWidth || 0}px`;
-            document.getElementById('valShadowBlur').textContent = `${st.shadowBlur || 0}px`;
-
-            const simBgSelect = document.getElementById('simBackground');
-            if (simBgSelect) simBgSelect.value = remoteState?.backgroundMode || 'transparent';
-            const displayModeSelect = document.getElementById('displayModeSelect');
-            if (displayModeSelect) displayModeSelect.value = remoteState?.displayMode || 'centered';
-            const showRefToggle = document.getElementById('showRefToggle');
-            if (showRefToggle) showRefToggle.checked = remoteState?.showReference !== false;
-        }
-
-        init();
-    </script>
+    window.addEventListener('beforeunload', () => { destroyed = true; });
+  </script>
 </body>
 </html>
